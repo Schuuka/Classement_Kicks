@@ -10,7 +10,11 @@ from discord.partial_emoji import PartialEmoji
 
 from operator import itemgetter
 import json
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
+token = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents().all()
 bot = commands.Bot(command_prefix="$", intents=intents)
@@ -19,7 +23,7 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-Bg = {"Tony":1000, "Clement":1000, "Arnaud":1000, "Florian":1000, "Kris":1000}
+Bg = {"Tony":1200, "Clement":1200, "Arnaud":1200, "Florian":1200, "Kris":1200,"Oli":1200,"Barney":1200}
 
 
 class SurveyView(discord.ui.View):
@@ -126,18 +130,28 @@ class ELO:
         self.players = players  # {player: elo}
         self.default_k = 40
         self.max_elo_for_lower_k = 2000
+        self.games_played = {player: 0 for player in players}
+        self.games_won = {player: 0 for player in players}
         self.load_elo()
 
     def load_elo(self):
         try:
             with open('elo_score.json', "r") as f:
-                self.players = json.load(f)
+                data = json.load(f)
+                self.players = data.get('players', {})
+                self.games_played = data.get('games_played', {})
+                self.games_won = data.get('games_won', {})
         except FileNotFoundError:
             pass
 
     def save_elo(self):
         with open('elo_score.json', "w") as f:
-            json.dump(self.players, f)
+            data = {
+                'players': self.players,
+                'games_played': self.games_played,
+                'games_won': self.games_won,
+            }
+            json.dump(data, f)
 
     def calculate_team_points(self, team):
         return sum(self.players[player] for player in team) / len(team)
@@ -161,11 +175,17 @@ class ELO:
             opponent_elo = self.calculate_team_points(team2)
             new_elo = self.calculate_new_elo(player_elo, opponent_elo, result)
             self.players[player] = new_elo
+            self.games_played[player] += 1
+            if result == 1:
+                self.games_won[player] += 1
         for player in team2:
             player_elo = self.players[player]
             opponent_elo = self.calculate_team_points(team1)
             new_elo = self.calculate_new_elo(player_elo, opponent_elo, 1 - result)
             self.players[player] = new_elo
+            self.games_played[player] += 1
+            if result == 0:
+                self.games_won[player] += 1
         self.save_elo()
 
 class SimpleView(discord.ui.View):
@@ -194,10 +214,17 @@ async def button(ctx):
 @bot.command()
 async def classement(ctx):
     with open('elo_score.json', 'r') as f:
-        players = json.load(f)
+        data = json.load(f)
+    players = data['players']
+    games_played = data['games_played']
+    games_won = data['games_won']
     sorted_players = sorted(players.items(), key=lambda item: item[1], reverse=True)
-    header = f'{"Joueur":<10} {"Score":<5}\n' + '-'*16 + '\n'
-    ranking = '```\n' + header + '\n'.join(f"{player:<10} {score:<5}" for player, score in sorted_players) + '```'
+    header = f'{"Rang":<5} {"Joueur":<10} {"Score  ":<5} {"Win/Rate(%) ":<12} {"Games Played":<15} {"Games Won":<15}\n|' + '-'*59 + '|\n'
+    ranking = '```\n' + header
+    for rank, (player, score) in enumerate(sorted_players):
+        win_rate = (games_won[player] / games_played[player]) * 100 if games_played[player] > 0 else 0
+        ranking += f"|{rank+1:<5} {player:<10} {score:<10}{win_rate:<15.2f}{games_played[player]:<15}{games_won[player]:<2}|\n|{'-'*59}|\n"
+    ranking += '```'
     await ctx.send(ranking)
 
 @bot.command()
@@ -215,4 +242,4 @@ async def ranked(ctx):
     print(f"{results}")
     #await ctx.message.author.send("Bien oej mon lascar!")
 
-bot.run("MTA0MjEzODg3ODgyOTY3NDU2Nw.Ga9ahm.Al0QZ9O49qHer3iiXLGeeLrDXLh58ZWy4Nf5Hw")
+bot.run(token)
