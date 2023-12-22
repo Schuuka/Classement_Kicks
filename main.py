@@ -23,7 +23,7 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-Bg = {"Tony":1200, "Clement":1200, "Arnaud":1200, "Florian":1200, "Kris":1200,"Oli":1200,"Barney":1200}
+Bg = {"Tony":1200, "Clement":1200, "Arnaud":1200, "Florian":1200, "Kris":1200,"Oli":1200,"Barney":1200, "Jackos":9999}
 
 
 class SurveyView(discord.ui.View):
@@ -78,6 +78,7 @@ class ButtonT1(discord.ui.Button):
         super().__init__(style=style, label=label, custom_id=custom_id)
         self.survey_view = survey_view
         self.elo = elo
+
     async def callback(self, interaction: discord.Interaction):
         if len(self.survey_view.answer1) > 1:
             winners = ' et '.join(self.survey_view.answer1)
@@ -96,6 +97,7 @@ class ButtonT2(discord.ui.Button):
         super().__init__(style=style, label=label, custom_id=custom_id)
         self.survey_view = survey_view
         self.elo = elo
+
     async def callback(self, interaction: discord.Interaction):
         if len(self.survey_view.answer2) > 1:
             winners = ' et '.join(self.survey_view.answer2)
@@ -142,19 +144,38 @@ class ELO:
                 self.games_played = data.get('games_played', {})
                 self.games_won = data.get('games_won', {})
         except FileNotFoundError:
-            pass
+            print("elo_score n'a pas été trouvé. Création d'un nouveau fichier.")
+            with open('bg', 'r') as f:
+                bg_players = f.read().splitlines()
+            self.players = {player: 1200 for player in bg_players}
+            self.games_played = {player: 0 for player in bg_players}
+            self.games_won = {player: 0 for player in bg_players}
+            self.save_elo()
+        except json.JSONDecodeError:
+            print("erreur de décodage JSON.")
+            self.players = {}
+            self.games_played = {}
+            self.games_won = {}
 
     def save_elo(self):
-        with open('elo_score.json', "w") as f:
-            data = {
-                'players': self.players,
-                'games_played': self.games_played,
-                'games_won': self.games_won,
-            }
-            json.dump(data, f)
+        try:
+            with open('elo_score.json', "w") as f:
+                data = {
+                    'players': self.players,
+                    'games_played': self.games_played,
+                    'games_won': self.games_won,
+                }
+                json.dump(data, f)
+        except IOError:
+            print("Error writing to 'elo_score.json'.")
 
     def calculate_team_points(self, team):
-        return sum(self.players[player] for player in team) / len(team)
+        if isinstance(team, list):
+            return sum(self.players[player] for player in team) / len(team)
+        elif isinstance(team, str):
+            return self.players.get(team, 0)
+        else:
+            raise TypeError("Erreur 'team' doit être une liste ou une chaîne de caractères")
     
     def get_k_factor(self, player_elo):
         # Ajuster le coefficient K en fonction du classement Elo du joueur
@@ -200,7 +221,7 @@ class SimpleView(discord.ui.View):
 async def on_ready():
     await bot.change_presence(
         status = discord.Status.dnd,
-        activity = discord.Game(" an unfunny game")
+        activity = discord.Game(" $ranked \n $classement")
     )
     print(f"{bot.user.name} est connecté !")
 
@@ -219,7 +240,7 @@ async def classement(ctx):
     games_played = data['games_played']
     games_won = data['games_won']
     sorted_players = sorted(players.items(), key=lambda item: item[1], reverse=True)
-    header = f'{"Rang":<5} {"Joueur":<10} {"Score  ":<5} {"Win/Rate(%) ":<12} {"Games Played":<15} {"Games Won":<15}\n|' + '-'*59 + '|\n'
+    header = f'{"Rang":<6} {"Joueurs":<10} {"ELO":<7} {"Win/Rate(%) ":<12} {"Games Played":<14} {"Games Won":<15}\n|' + '-'*59 + '|\n'
     ranking = '```\n' + header
     for rank, (player, score) in enumerate(sorted_players):
         win_rate = (games_won[player] / games_played[player]) * 100 if games_played[player] > 0 else 0
