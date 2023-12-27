@@ -1,6 +1,7 @@
 from typing import Any, Optional, Union
 import discord
 from discord import app_commands
+from discord import Embed
 from discord.emoji import Emoji
 from discord.enums import ButtonStyle
 
@@ -23,7 +24,7 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-Bg = {"Tony":1200, "Clement":1200, "Arnaud":1200, "Florian":1200, "Kris":1200,"Oli":1200,"Barney":1200, "Jackos":9999}
+Bg = {"Tony":1200, "Clement":1200, "Arnaud":1200, "Florian":1200, "Kris":1200,"Oli":1200,"Barney":1200, "Jackos":1200}
 
 
 class SurveyView(discord.ui.View):
@@ -131,7 +132,7 @@ class ELO:
     def __init__(self, players):
         self.players = players  # {player: elo}
         self.default_k = 40
-        self.max_elo_for_lower_k = 2000
+        self.max_elo_for_lower_k = 1600
         self.games_played = {player: 0 for player in players}
         self.games_won = {player: 0 for player in players}
         self.load_elo()
@@ -145,8 +146,7 @@ class ELO:
                 self.games_won = data.get('games_won', {})
         except FileNotFoundError:
             print("elo_score n'a pas été trouvé. Création d'un nouveau fichier.")
-            with open('bg', 'r') as f:
-                bg_players = f.read().splitlines()
+            bg_players = Bg.keys()
             self.players = {player: 1200 for player in bg_players}
             self.games_played = {player: 0 for player in bg_players}
             self.games_won = {player: 0 for player in bg_players}
@@ -209,14 +209,6 @@ class ELO:
                 self.games_won[player] += 1
         self.save_elo()
 
-class SimpleView(discord.ui.View):
-    
-    @discord.ui.button(label="Hello",
-                       style=discord.ButtonStyle.success)
-
-    async def hello(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("World")
-
 @bot.event
 async def on_ready():
     await bot.change_presence(
@@ -226,13 +218,6 @@ async def on_ready():
     print(f"{bot.user.name} est connecté !")
 
 @bot.command()
-async def button(ctx):
-    view = SimpleView()
-    button = discord.ui.Button(label="Click me")
-    view.add_item(button)
-    await ctx.send(view=view)
-
-@bot.command()
 async def classement(ctx):
     with open('elo_score.json', 'r') as f:
         data = json.load(f)
@@ -240,13 +225,16 @@ async def classement(ctx):
     games_played = data['games_played']
     games_won = data['games_won']
     sorted_players = sorted(players.items(), key=lambda item: item[1], reverse=True)
-    header = f'{"Rang":<6} {"Joueurs":<10} {"ELO":<7} {"Win/Rate(%) ":<12} {"Games Played":<14} {"Games Won":<15}\n|' + '-'*59 + '|\n'
-    ranking = '```\n' + header
+
+    embed = Embed(title="Classement des joueurs", color=discord.Color.from_rgb(255, 255, 0))
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/700340614960775279/1189381521933611028/406121614_878703493725424_8584499380096395993_n.png?ex=659df4dc&is=658b7fdc&hm=7647828955e97cb4f6f844e7665efd28d2edf95fce619b7f532643cbb682fe4f&")
     for rank, (player, score) in enumerate(sorted_players):
-        win_rate = (games_won[player] / games_played[player]) * 100 if games_played[player] > 0 else 0
-        ranking += f"|{rank+1:<5} {player:<10} {score:<10}{win_rate:<15.2f}{games_played[player]:<15}{games_won[player]:<2}|\n|{'-'*59}|\n"
-    ranking += '```'
-    await ctx.send(ranking)
+        played = games_played.get(player, 0)
+        won = games_won.get(player, 0)
+        winrate = won / played * 100 if played > 0 else 0
+        embed.add_field(name=f"- {rank+1}. {player}", value=f"  *ELO* : **{score}**\n   *Parties jouées* : **{played}**\n   *Parties gagnées* : **{won}**\n *Winrate* : **{winrate:.2f}** %", inline=False)
+
+    await ctx.send(embed=embed)
 
 @bot.command()
 async def ranked(ctx):

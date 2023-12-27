@@ -1,6 +1,7 @@
 from typing import Any, Optional, Union
 import discord
 from discord import app_commands
+from discord import Embed
 from discord.emoji import Emoji
 from discord.enums import ButtonStyle
 
@@ -10,7 +11,11 @@ from discord.partial_emoji import PartialEmoji
 
 from operator import itemgetter
 import json
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
+token = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents().all()
 bot = commands.Bot(command_prefix="$", intents=intents)
@@ -19,7 +24,7 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-Bg = {"Tony":1000, "Clement":1000, "Arnaud":1000, "Florian":1000, "Kris":1000}
+Bg = {"Tony":1200, "Clement":1200, "Arnaud":1200, "Florian":1200, "Kris":1200,"Oli":1200,"Barney":1200, "Jackos":1200}
 
 
 class SurveyView(discord.ui.View):
@@ -74,6 +79,7 @@ class ButtonT1(discord.ui.Button):
         super().__init__(style=style, label=label, custom_id=custom_id)
         self.survey_view = survey_view
         self.elo = elo
+
     async def callback(self, interaction: discord.Interaction):
         if len(self.survey_view.answer1) > 1:
             winners = ' et '.join(self.survey_view.answer1)
@@ -92,6 +98,7 @@ class ButtonT2(discord.ui.Button):
         super().__init__(style=style, label=label, custom_id=custom_id)
         self.survey_view = survey_view
         self.elo = elo
+
     async def callback(self, interaction: discord.Interaction):
         if len(self.survey_view.answer2) > 1:
             winners = ' et '.join(self.survey_view.answer2)
@@ -125,22 +132,50 @@ class ELO:
     def __init__(self, players):
         self.players = players  # {player: elo}
         self.default_k = 40
-        self.max_elo_for_lower_k = 2000
+        self.max_elo_for_lower_k = 1600
+        self.games_played = {player: 0 for player in players}
+        self.games_won = {player: 0 for player in players}
         self.load_elo()
 
     def load_elo(self):
         try:
             with open('elo_score.json', "r") as f:
-                self.players = json.load(f)
+                data = json.load(f)
+                self.players = data.get('players', {})
+                self.games_played = data.get('games_played', {})
+                self.games_won = data.get('games_won', {})
         except FileNotFoundError:
-            pass
+            print("elo_score n'a pas été trouvé. Création d'un nouveau fichier.")
+            bg_players = Bg.keys()
+            self.players = {player: 1200 for player in bg_players}
+            self.games_played = {player: 0 for player in bg_players}
+            self.games_won = {player: 0 for player in bg_players}
+            self.save_elo()
+        except json.JSONDecodeError:
+            print("erreur de décodage JSON.")
+            self.players = {}
+            self.games_played = {}
+            self.games_won = {}
 
     def save_elo(self):
-        with open('elo_score.json', "w") as f:
-            json.dump(self.players, f)
+        try:
+            with open('elo_score.json', "w") as f:
+                data = {
+                    'players': self.players,
+                    'games_played': self.games_played,
+                    'games_won': self.games_won,
+                }
+                json.dump(data, f)
+        except IOError:
+            print("Error writing to 'elo_score.json'.")
 
     def calculate_team_points(self, team):
-        return sum(self.players[player] for player in team) / len(team)
+        if isinstance(team, list):
+            return sum(self.players[player] for player in team) / len(team)
+        elif isinstance(team, str):
+            return self.players.get(team, 0)
+        else:
+            raise TypeError("Erreur 'team' doit être une liste ou une chaîne de caractères")
     
     def get_k_factor(self, player_elo):
         # Ajuster le coefficient K en fonction du classement Elo du joueur
@@ -161,35 +196,42 @@ class ELO:
             opponent_elo = self.calculate_team_points(team2)
             new_elo = self.calculate_new_elo(player_elo, opponent_elo, result)
             self.players[player] = new_elo
+            self.games_played[player] += 1
+            if result == 1:
+                self.games_won[player] += 1
         for player in team2:
             player_elo = self.players[player]
             opponent_elo = self.calculate_team_points(team1)
             new_elo = self.calculate_new_elo(player_elo, opponent_elo, 1 - result)
             self.players[player] = new_elo
+            self.games_played[player] += 1
+            if result == 0:
+                self.games_won[player] += 1
         self.save_elo()
-
-class SimpleView(discord.ui.View):
-    
-    @discord.ui.button(label="Hello",
-                       style=discord.ButtonStyle.success)
-
-    async def hello(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("World")
 
 @bot.event
 async def on_ready():
     await bot.change_presence(
         status = discord.Status.dnd,
-        activity = discord.Game(" an unfunny game")
+        activity = discord.Game(" $ranked \n $classement")
     )
     print(f"{bot.user.name} est connecté !")
 
 @bot.command()
-async def button(ctx):
-    view = SimpleView()
-    button = discord.ui.Button(label="Click me")
-    view.add_item(button)
-    await ctx.send(view=view)
+async def classement(ctx):
+    with open('elo_score.json', 'r') as f:
+        data = json.load(f)
+    players = data['players']
+    games_played = data['games_played']
+    games_won = data['games_won']
+    sorted_players = sorted(players.items(), key=lambda item: item[1], reverse=True)
+    header = f'{"Rang":<6} {"Joueurs":<10} {"ELO":<7} {"Win/Rate(%) ":<12} {"Games Played":<14} {"Games Won":<15}\n|' + '-'*59 + '|\n'
+    ranking = '```\n' + header
+    for rank, (player, score) in enumerate(sorted_players):
+        win_rate = (games_won[player] / games_played[player]) * 100 if games_played[player] > 0 else 0
+        ranking += f"|{rank+1:<5} {player:<10} {score:<10}{win_rate:<15.2f}{games_played[player]:<15}{games_won[player]:<2}|\n|{'-'*59}|\n"
+    ranking += '```'
+    await ctx.send(ranking)
 
 @bot.command()
 async def ranked(ctx):
@@ -206,4 +248,4 @@ async def ranked(ctx):
     print(f"{results}")
     #await ctx.message.author.send("Bien oej mon lascar!")
 
-bot.run("MTA0MjEzODg3ODgyOTY3NDU2Nw.Ga9ahm.Al0QZ9O49qHer3iiXLGeeLrDXLh58ZWy4Nf5Hw")
+bot.run(token)
