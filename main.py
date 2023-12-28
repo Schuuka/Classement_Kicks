@@ -10,6 +10,7 @@ from discord.interactions import Interaction
 from discord.partial_emoji import PartialEmoji
 
 from operator import itemgetter
+import asyncio
 import json
 import os
 from dotenv import load_dotenv
@@ -212,7 +213,7 @@ class ELO:
 @bot.event
 async def on_ready():
     await bot.change_presence(
-        status = discord.Status.dnd,
+        status = discord.Status.online,
         activity = discord.Game(" $ranked \n $classement")
     )
     print(f"{bot.user.name} est connecté !")
@@ -238,17 +239,20 @@ async def classement(ctx):
 
 @bot.command()
 async def ranked(ctx):
+    cancel_emoji = "❌"
     elo = ELO(Bg)
     view = SurveyView(elo.players)
-    await ctx.send(view=view)
-    await view.wait()
+    message = await ctx.send("Omg la vilaine ranked en cours...", view=view)
+    await message.add_reaction(cancel_emoji)
 
-    results = {
-        "équipe 1": view.answer1,
-        "équipe 2": view.answer2,
-    }
+    def check(reaction, user):
+        return user == ctx.author and str(reaction.emoji) == cancel_emoji
 
-    print(f"{results}")
-    #await ctx.message.author.send("Bien oej mon lascar!")
+    try:
+        reaction, user = await bot.wait_for("reaction_add", timeout=300.0, check=check)
+        await message.delete()
+        await ctx.send("Commande annulée.")
+    except asyncio.TimeoutError:
+        await message.clear_reactions()
 
 bot.run(token)

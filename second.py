@@ -10,6 +10,7 @@ from discord.interactions import Interaction
 from discord.partial_emoji import PartialEmoji
 
 from operator import itemgetter
+import asyncio
 import json
 import os
 from dotenv import load_dotenv
@@ -225,27 +226,33 @@ async def classement(ctx):
     games_played = data['games_played']
     games_won = data['games_won']
     sorted_players = sorted(players.items(), key=lambda item: item[1], reverse=True)
-    header = f'{"Rang":<6} {"Joueurs":<10} {"ELO":<7} {"Win/Rate(%) ":<12} {"Games Played":<14} {"Games Won":<15}\n|' + '-'*59 + '|\n'
-    ranking = '```\n' + header
+
+    embed = Embed(title="Classement des joueurs", color=discord.Color.from_rgb(255, 255, 0))
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/700340614960775279/1189381521933611028/406121614_878703493725424_8584499380096395993_n.png?ex=659df4dc&is=658b7fdc&hm=7647828955e97cb4f6f844e7665efd28d2edf95fce619b7f532643cbb682fe4f&")
     for rank, (player, score) in enumerate(sorted_players):
-        win_rate = (games_won[player] / games_played[player]) * 100 if games_played[player] > 0 else 0
-        ranking += f"|{rank+1:<5} {player:<10} {score:<10}{win_rate:<15.2f}{games_played[player]:<15}{games_won[player]:<2}|\n|{'-'*59}|\n"
-    ranking += '```'
-    await ctx.send(ranking)
+        played = games_played.get(player, 0)
+        won = games_won.get(player, 0)
+        winrate = won / played * 100 if played > 0 else 0
+        embed.add_field(name=f"- {rank+1}. {player}", value=f"  *ELO* : **{score}**\n   *Parties jouées* : **{played}**\n   *Parties gagnées* : **{won}**\n *Winrate* : **{winrate:.2f}** %", inline=False)
+
+    await ctx.send(embed=embed)
 
 @bot.command()
 async def ranked(ctx):
+    cancel_emoji = "❌"
     elo = ELO(Bg)
     view = SurveyView(elo.players)
-    await ctx.send(view=view)
-    await view.wait()
+    message = await ctx.send("Omg la vilaine ranked en cours...", view=view)
+    await message.add_reaction(cancel_emoji)
 
-    results = {
-        "équipe 1": view.answer1,
-        "équipe 2": view.answer2,
-    }
+    def check(reaction, user):
+        return user == ctx.author and str(reaction.emoji) == cancel_emoji
 
-    print(f"{results}")
-    #await ctx.message.author.send("Bien oej mon lascar!")
+    try:
+        reaction, user = await bot.wait_for("reaction_add", timeout=300.0, check=check)
+        await message.delete()
+        await ctx.send("Commande annulée.")
+    except asyncio.TimeoutError:
+        await message.clear_reactions()
 
 bot.run(token)
