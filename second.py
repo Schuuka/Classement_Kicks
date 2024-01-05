@@ -1,18 +1,11 @@
-from typing import Any, Optional, Union
+import os
+import json
+import asyncio
 import discord
-from discord import app_commands
 from discord import Embed
-from discord.emoji import Emoji
-from discord.enums import ButtonStyle
 
 from discord.ext import commands
-from discord.interactions import Interaction
-from discord.partial_emoji import PartialEmoji
 
-from operator import itemgetter
-import asyncio
-import json
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -73,7 +66,6 @@ class SurveyView(discord.ui.View):
         team_points2 = elo.calculate_team_points(self.answer2)
         await self.message.edit(content=f"{self.content}\n\n                           ***CONTRE***\n\n__*Équipe 2*__ :\n\n{gamers2}, \nMoyenne d'ELO : **{int(team_points2)}** pts d'ELO")
         await interaction.message.edit(view=self)
-        #self.stop()
 
 class ButtonT1(discord.ui.Button):
     def __init__(self, survey_view: SurveyView, elo, label="Win team 1", custom_id="winT1", style=discord.ButtonStyle.blurple):
@@ -136,9 +128,9 @@ class ELO:
         self.max_elo_for_lower_k = 1600
         self.games_played = {player: 0 for player in players}
         self.games_won = {player: 0 for player in players}
-        self.load_elo()
+        self._load_elo()
 
-    def load_elo(self):
+    def _load_elo(self):
         try:
             with open('elo_score.json', "r") as f:
                 data = json.load(f)
@@ -151,14 +143,15 @@ class ELO:
             self.players = {player: 1200 for player in bg_players}
             self.games_played = {player: 0 for player in bg_players}
             self.games_won = {player: 0 for player in bg_players}
-            self.save_elo()
+            self._save_elo()
         except json.JSONDecodeError:
             print("erreur de décodage JSON.")
             self.players = {}
             self.games_played = {}
             self.games_won = {}
+            raise Exception("Erreur de décodage JSON. Veuillez vérifier les messages d'erreurs.")
 
-    def save_elo(self):
+    def _save_elo(self):
         try:
             with open('elo_score.json', "w") as f:
                 data = {
@@ -168,7 +161,7 @@ class ELO:
                 }
                 json.dump(data, f)
         except IOError:
-            print("Error writing to 'elo_score.json'.")
+            raise Exception("Erreur d'écriture vers 'elo_score.json'.")
 
     def calculate_team_points(self, team):
         if isinstance(team, list):
@@ -186,6 +179,18 @@ class ELO:
             return self.default_k
         
     def calculate_new_elo(self, player_elo, opponent_elo, result):
+        """
+        Pré-condition : 
+        - 'player_elo' et 'opponent_elo' doivent être des nombres (int ou float)
+        - 'result' doit être 0 ou 1
+
+        Post-condition :
+        - Retourne le nouvel ELO du joueur après le match
+        """
+        assert isinstance(player_elo, (int, float)), "'player_elo' doit être un nombre"
+        assert isinstance(opponent_elo, (int, float)), "'opponent_elo' doit être un nombre"
+        assert result in [0, 1], "'result' doit être 0 ou 1"
+
         expected_score = 1 / (1 + 10 ** ((opponent_elo - player_elo) / 400))
         k_factor = self.get_k_factor(player_elo)
         new_elo = player_elo + k_factor * (result - expected_score)
@@ -208,7 +213,7 @@ class ELO:
             self.games_played[player] += 1
             if result == 0:
                 self.games_won[player] += 1
-        self.save_elo()
+        self._save_elo()
 
 @bot.event
 async def on_ready():
@@ -240,7 +245,11 @@ async def classement(ctx):
 @bot.command()
 async def ranked(ctx):
     cancel_emoji = "❌"
-    elo = ELO(Bg)
+    try:
+        elo = ELO(Bg)
+    except Exception as e:
+        await ctx.send(str(e))
+        return
     view = SurveyView(elo.players)
     message = await ctx.send("Omg la vilaine ranked en cours...", view=view)
     await message.add_reaction(cancel_emoji)
@@ -249,7 +258,7 @@ async def ranked(ctx):
         return user == ctx.author and str(reaction.emoji) == cancel_emoji
 
     try:
-        reaction, user = await bot.wait_for("reaction_add", timeout=300.0, check=check)
+        await bot.wait_for("reaction_add", timeout=300.0, check=check)
         await message.delete()
         await ctx.send("Commande annulée.")
     except asyncio.TimeoutError:
