@@ -1,42 +1,33 @@
-from typing import Any, Optional, Union
+import os
+import json
+import asyncio
 import discord
-from discord import app_commands
 from discord import Embed
-from discord.emoji import Emoji
-from discord.enums import ButtonStyle
 
 from discord.ext import commands
-from discord.interactions import Interaction
-from discord.partial_emoji import PartialEmoji
+from discord.ext.commands import Greedy
 
-from operator import itemgetter
-import asyncio
-import json
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents().all()
-bot = commands.Bot(command_prefix="$", intents=intents)
+bot = commands.Bot(command_prefix="€", intents=intents)
 
 intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-Bg = {"Tony":1200, "Clement":1200, "Arnaud":1200, "Florian":1200, "Kris":1200,"Oli":1200,"Barney":1200, "Jackos":1200}
-
-
 class SurveyView(discord.ui.View):
-    def __init__(self, Bg):
+    def __init__(self):
         super().__init__()
-        self.all_players = Bg
         self.answer1 = None
         self.answer2 = None
         self.message = None
-        self.elo = ELO(self.all_players)
-        self.team1select = Team1Select(list(self.all_players.keys()))
+        self.elo = ELO()
+        self.elo.load_elo()
+        self.team1select = Team1Select(list(self.elo.players.keys()))
         self.add_item(self.team1select)
 
     async def handle_team1select(self, interaction:discord.Interaction, select_item : discord.ui.select):
@@ -44,17 +35,33 @@ class SurveyView(discord.ui.View):
         self.answer1 = select_item.values
         self.team1select.disabled= True
         channel = bot.get_channel(interaction.channel.id)
-        remaining_players = [player for player in self.all_players if player not in self.answer1]
-        team2 = Team2Select(remaining_players)
-        self.add_item(team2)
-        elo = ELO(self.all_players)
-        if len(self.answer1) > 1:
-            gamers = ' et '.join(f"**{player}** : **{elo.players[player]}** d'ELO" for player in self.answer1)
+        remaining_players = [player for player in self.elo.players if player not in self.answer1]
+        if len(remaining_players) == 1:
+            self.answer2 = remaining_players
+            bt1 = ButtonT1(self, self.elo)
+            bt2 = ButtonT2(self, self.elo)
+            self.add_item(bt1)
+            self.add_item(bt2)
+            elo = ELO()
+            if len(self.answer1) > 1:
+                gamers = ' et '.join(f"**{player}** : **{elo.players[player]}** d'ELO" for player in self.answer1)
+            else:
+                gamers = f"**{self.answer1[0]}** : **{elo.players[self.answer1[0]]}** d'ELO"
+            team_points = elo.calculate_team_points(self.answer1)
+            self.content = f"__*Équipe 1*__ :\n\n{gamers}, \nMoyenne d'ELO : **{int(team_points)}** pts d'ELO"
+            team_points2 = elo.calculate_team_points(self.answer2)
+            self.message = await channel.send(f"{self.content}\n\n                           ***CONTRE***\n\n__*Équipe 2*__ :\n\n**{self.answer2[0]}** : **{elo.players[self.answer2[0]]}** d'ELO, \nMoyenne d'ELO : **{int(team_points2)}** pts d'ELO")
         else:
-            gamers = f"**{self.answer1[0]}** : **{elo.players[self.answer1[0]]}** d'ELO"
-        team_points = elo.calculate_team_points(self.answer1)
-        self.content = f"__*Équipe 1*__ :\n\n{gamers}, \nMoyenne d'ELO : **{int(team_points)}** pts d'ELO"
-        self.message = await channel.send(f"{self.content}")
+            team2 = Team2Select(remaining_players)
+            self.add_item(team2)
+            elo = ELO()
+            if len(self.answer1) > 1:
+                gamers = ' et '.join(f"**{player}** : **{elo.players[player]}** d'ELO" for player in self.answer1)
+            else:
+                gamers = f"**{self.answer1[0]}** : **{elo.players[self.answer1[0]]}** d'ELO"
+            team_points = elo.calculate_team_points(self.answer1)
+            self.content = f"__*Équipe 1*__ :\n\n{gamers}, \nMoyenne d'ELO : **{int(team_points)}** pts d'ELO"
+            self.message = await channel.send(f"{self.content}")
         await interaction.message.edit(view=self)
 
     async def respond_to_answer2(self, interaction : discord.Interaction, choices):
@@ -65,7 +72,7 @@ class SurveyView(discord.ui.View):
         bt2 = ButtonT2(self, self.elo)
         self.add_item(bt1)
         self.add_item(bt2)
-        elo = ELO(self.all_players)
+        elo = ELO()
         if len(self.answer2) > 1:
             gamers2 = ' et '.join(f"**{player}** : **{elo.players[player]}** d'ELO" for player in self.answer2)
         else:
@@ -73,7 +80,6 @@ class SurveyView(discord.ui.View):
         team_points2 = elo.calculate_team_points(self.answer2)
         await self.message.edit(content=f"{self.content}\n\n                           ***CONTRE***\n\n__*Équipe 2*__ :\n\n{gamers2}, \nMoyenne d'ELO : **{int(team_points2)}** pts d'ELO")
         await interaction.message.edit(view=self)
-        #self.stop()
 
 class ButtonT1(discord.ui.Button):
     def __init__(self, survey_view: SurveyView, elo, label="Win team 1", custom_id="winT1", style=discord.ButtonStyle.blurple):
@@ -130,12 +136,12 @@ class Team2Select(discord.ui.Select):
         await self.view.respond_to_answer2(interaction, self.values)
 
 class ELO:
-    def __init__(self, players):
-        self.players = players  # {player: elo}
+    def __init__(self,):
+        self.players = {} # {player: elo}
         self.default_k = 40
         self.max_elo_for_lower_k = 1600
-        self.games_played = {player: 0 for player in players}
-        self.games_won = {player: 0 for player in players}
+        self.games_played = {}
+        self.games_won = {}
         self.load_elo()
 
     def load_elo(self):
@@ -146,17 +152,7 @@ class ELO:
                 self.games_played = data.get('games_played', {})
                 self.games_won = data.get('games_won', {})
         except FileNotFoundError:
-            print("elo_score n'a pas été trouvé. Création d'un nouveau fichier.")
-            bg_players = Bg.keys()
-            self.players = {player: 1200 for player in bg_players}
-            self.games_played = {player: 0 for player in bg_players}
-            self.games_won = {player: 0 for player in bg_players}
-            self.save_elo()
-        except json.JSONDecodeError:
-            print("erreur de décodage JSON.")
-            self.players = {}
-            self.games_played = {}
-            self.games_won = {}
+            print("elo_score n'a pas été trouvé.")
 
     def save_elo(self):
         try:
@@ -214,12 +210,44 @@ class ELO:
 async def on_ready():
     await bot.change_presence(
         status = discord.Status.online,
-        activity = discord.Game(" $ranked \n $classement")
+        activity = discord.Game(" €ajout | €ranked | €classement")
     )
     print(f"{bot.user.name} est connecté !")
 
 @bot.command()
+async def ajout(ctx, *, player_name: str):
+    data = {}
+    if os.path.exists('elo_score.json'):
+        with open('elo_score.json', 'r') as f:
+            data = json.load(f)
+    else:
+        print("elo_score.json n'a pas été trouvé. Création d'un nouveau fichier.")
+
+    if 'players' not in data:
+        data['players'] = {}
+    if 'games_played' not in data:
+        data['games_played'] = {}
+    if 'games_won' not in data:
+        data['games_won'] = {}
+
+    if player_name in data['players']:
+        await ctx.send(f"\"**{player_name}**\" existe déjà.")
+    else:
+        data['players'][player_name] = 1200
+        data['games_played'][player_name] = 0
+        data['games_won'][player_name] = 0
+
+        with open('elo_score.json', 'w') as f:
+            json.dump(data, f)
+
+        await ctx.send(f"Bienvenue **{player_name}** au kicker du [@KLEPTOKICK](https://www.tiktok.com/@KLEPTOKICK).")
+
+@bot.command()
 async def classement(ctx):
+    if not os.path.exists('elo_score.json'):
+        await ctx.send("Il n'y a pas de classement pour le moment.\n||Faites la commande $ajout pour ajouter des joueurs.||\n||Sinon contactez le goat.||")
+        return
+    
     with open('elo_score.json', 'r') as f:
         data = json.load(f)
     players = data['players']
@@ -239,9 +267,21 @@ async def classement(ctx):
 
 @bot.command()
 async def ranked(ctx):
+    if not os.path.exists('elo_score.json'):
+        await ctx.send("Il n'y a pas de joueurs pour le moment.\n||Faites la commande $ajout pour ajouter des joueurs.||\n||Sinon contactez le goat.||")
+        return
+
+    with open('elo_score.json', 'r') as f:
+        data = json.load(f)
+    players = data['players']
+
+    if len(players) < 2:
+        await ctx.send("Il faut au moins deux joueurs pour commencer une ranked.")
+        return
+    
     cancel_emoji = "❌"
-    elo = ELO(Bg)
-    view = SurveyView(elo.players)
+    elo = ELO()
+    view = SurveyView()
     message = await ctx.send("Omg la vilaine ranked en cours...", view=view)
     await message.add_reaction(cancel_emoji)
 
