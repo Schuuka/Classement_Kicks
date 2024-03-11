@@ -323,7 +323,7 @@ async def classement(ctx):
     sorted_players = sorted(players.items(), key=lambda item: item[1], reverse=True)
 
     embed = Embed(title="Classement des joueurs", color=discord.Color.from_rgb(255, 255, 0))
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1142877335176085584/1202274557004886076/IMG_3355.png?ex=65ccdc6f&is=65ba676f&hm=067c9387506ed7e144f3b7ce2d50854204912d72258ae967094110e0b6fffbee&")
+    embed.set_thumbnail(url="https://media.discordapp.net/attachments/1142877335176085584/1213914600542572595/IMG_3526.jpg?ex=66006f92&is=65edfa92&hm=fe48b31d2b6b4ba003a42b8c4008fcadd676593d65fa6f71db12065caef0280a&=&format=webp&width=1016&height=677")
     for rank, (player, score) in enumerate(sorted_players):
         played = games_played.get(player, 0)
         won = games_won.get(player, 0)
